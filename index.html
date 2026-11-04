@@ -1178,20 +1178,20 @@ function whyHtml(s) {
     return t;
   };
   for (const ri of roles) {
-    const x = whyFor(ri, c);
-    if (!x || x.blindShare === null) { const dt = duoText(ri); if (dt) parts.push(`<p>${ROLE_KO[ROLES[ri]]} ${me}:${dt}</p>`); continue; }
+    const x = whyFor(ri, c), pre = roles.length > 1 ? `<b>${ROLE_KO[ROLES[ri]]}에서</b> ` : '';   // the position is named only when the champion plays several
+    if (!x || x.blindShare === null) { const dt = duoText(ri); if (dt) parts.push(`<p>${pre}${dt.trim()}</p>`); continue; }
     const role = ROLE_KO[ROLES[ri]], top = x.answers[0], by = x.answeredBy[0];
     let head;
     if (x.blindShare <= 0.35) {
-      head = `${role} ${me}: 주로 상대 ${role} 챔피언을 보고 꺼내는 받아치기 카드.`;
+      head = `${pre}주로 상대 ${role} 챔피언을 보고 꺼내는 받아치기 카드.`;
       if (top && x.nAns && top.n / x.nAns >= 0.4) head += ` 받아치기로 나온 ${x.nAns}판 중 ${top.n}판이 ${cname(top.e)} 상대. ${tagT(top.e) ? `${tagT(top.e)} ${josa(cname(top.e), '을', '를')}` : josa(cname(top.e), '을', '를')} 잡는 카드라서 많이 뽑힘.`;
       else if (top) head += ` 특히 ${josa(cname(top.e), '이', '가')} 먼저 나오면 평소의 ${top.lift.toFixed(1)}배로 나옴.`;
     } else if (x.blindShare >= 0.65) {
-      head = `${role} ${me}: 먼저 꺼내도 되는 카드(상대 ${role}보다 먼저 고른 비율 ${pct(x.blindShare)}).`;
+      head = `${pre}먼저 꺼내도 되는 카드(상대 ${role}보다 먼저 고른 비율 ${pct(x.blindShare)}).`;
       if (by) head += ` 상대는 주로 ${josa(cname(by.e), '으로', '로')} 받아침.`;
       if (top && x.nAns && top.n / x.nAns >= 0.4) head += ` 나중에 고를 때는 ${x.nAns}판 중 ${top.n}판이 ${cname(top.e)} 상대.`;
     } else {
-      head = `${role} ${me}: 먼저도, 받아치기로도 쓰는 카드(먼저 고른 비율 ${pct(x.blindShare)}).`;
+      head = `${pre}먼저도, 받아치기로도 쓰는 카드(먼저 고른 비율 ${pct(x.blindShare)}).`;
       if (top) head += ` 받아칠 때는 ${cname(top.e)} 상대로 평소의 ${top.lift.toFixed(1)}배 자주 나옴.`;
     }
     const v = CS.get(ROLES[ri] + ':' + c);
