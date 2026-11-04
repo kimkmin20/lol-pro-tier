@@ -256,7 +256,7 @@ a{color:var(--accent)}
   <div>
     <h1>LoL Pro Tier</h1>
   </div>
-  <div class="status" id="status"></div>
+  <div class="status" id="status" hidden></div>
 </header>
 
 <div class="controls">
@@ -275,7 +275,7 @@ a{color:var(--accent)}
     <select id="asof" aria-hidden="true"><option value="end">마지막 경기까지</option><option value="start">시작 전</option></select>
     <select id="scope" aria-hidden="true"><option value="auto">자동</option><option value="global">전 세계</option></select>
   </div>
-  <p class="note" id="compinfo" style="margin:0;width:100%"></p>
+  <p id="compinfo" hidden></p>
 </div>
 </div>
 
@@ -297,12 +297,10 @@ a{color:var(--accent)}
 <section class="view" id="v-teams" hidden>
   <div class="row"><div class="seg" id="tview" aria-label="보기"><button data-v="real" aria-pressed="true">실제 순위</button><button data-v="elo" aria-pressed="false">Elo 순위</button><button data-v="bracket" aria-pressed="false">대진표</button></div><span class="note" id="tasof"></span></div>
   <div id="t-real"></div>
-  <div id="t-elo" hidden><div class="tablewrap"><table id="teamtable"></table></div>
-  <p class="note">팀 레이팅 = 1500 + 지역 레이팅 + 그 경기에 나온 선수 5명의 레이팅 평균이에요. 선수 레이팅은 이적해도 따라가고, 새해 첫 경기 때 리그 평균 쪽으로 10%만 당겨요. 레이팅 100점 차이는 단판 승률 약 64%예요.</p></div>
+  <div id="t-elo" hidden><div class="tablewrap"><table id="teamtable"></table></div></div>
   <div id="t-bracket" hidden></div>
   <div class="card"><h3>선수 레이팅 (이 구간에 뛴 선수)</h3><div class="tablewrap" style="border:0;max-height:420px;overflow:auto"><table id="pltable"></table></div><p class="note" id="plnote"></p></div>
-  <div class="card"><h3>지역 실력 (리그 평균 레이팅)</h3><div class="tablewrap" style="border:0"><table id="lgtable"></table></div>
-  <p class="note">국제전 결과는 선수 레이팅과 함께 지역 레이팅을 움직여요. 그래서 국제전에 안 나간 팀도 지역 성적만큼 함께 오르내려요.</p></div>
+  <div class="card"><h3>지역 실력 (리그 평균 레이팅)</h3><div class="tablewrap" style="border:0"><table id="lgtable"></table></div></div>
 </section>
 
 <section class="view" id="v-predict" hidden>
@@ -328,7 +326,6 @@ a{color:var(--accent)}
   </div>
   <div class="card">
     <h3>밴픽 넣어보기 (선택)</h3>
-    <p class="note">두 팀의 챔피언을 포지션별로 넣으면 최근 90일 프로 경기에서 잰 챔피언 강도로 승률을 보정해요. 같은 실력이면 보통 ±2~4%p 정도 움직여요.</p>
     <div class="draft" id="draft"></div>
     <div class="row" style="margin-top:10px"><button id="dclear">비우기</button><span class="note" id="dnote"></span></div>
     <datalist id="champlist"></datalist>
@@ -344,7 +341,7 @@ a{color:var(--accent)}
       <div class="field"><label>피어리스</label><div class="seg" id="sfear"><button data-v="1" aria-pressed="true">켜기</button><button data-v="0" aria-pressed="false">끄기</button></div></div>
       <div class="field"><label>&nbsp;</label><button class="primary" id="snew">새 시리즈 시작</button></div>
     </div>
-    <p class="note" id="sctx" style="margin:8px 0 0"></p>
+    <p id="sctx" hidden></p>
   </div>
   <div class="dsim" id="dsim">
     <div class="series" id="sseries"></div>
@@ -952,8 +949,20 @@ let WHY = null;
 function buildWhy(tEnd, hl = 21, lookback = 120) {
   const A = new Map(), N = new Map(), ANS = new Map(), totN = [0, 0, 0, 0, 0], perf = new Map(), blind = new Map();
   const add = (m, k, v) => m.set(k, (m.get(k) || 0) + v);
+  const PW = new Map(), PN_ = new Map(), PWIN = new Map(), RC = new Map(), RCN = new Map(); let TW = 0;   // same-team pairs (duos)
   for (const g of ALL) {
     if (g.ts >= tEnd || g.ts < tEnd - lookback * 86400) continue;
+    {
+      const w = Math.pow(0.5, (tEnd - g.ts) / 86400 / hl);
+      for (let side = 0; side < 2; side++) {
+        const won = side ? 1 - g.bw : g.bw; TW += w;
+        for (let r = 0; r < 5; r++) {
+          const c = g.picks[side * 5 + r]; if (c < 0) continue;
+          add(RC, r + ':' + c, w); add(RCN, r + ':' + c, 1);
+          for (let r2 = 0; r2 < 5; r2++) { if (r2 === r) continue; const c2 = g.picks[side * 5 + r2]; if (c2 < 0) continue; const k = r + ':' + c + '|' + r2 + ':' + c2; add(PW, k, w); add(PN_, k, 1); add(PWIN, k, won); }
+        }
+      }
+    }
     const lo = laneOrder(g); if (!lo) continue;
     const w = Math.pow(0.5, (tEnd - g.ts) / 86400 / hl);
     lo.forEach((x, ri) => {
@@ -967,7 +976,7 @@ function buildWhy(tEnd, hl = 21, lookback = 120) {
       const gd = g.gl ? g.gl[ri] : null; if (gd !== null && gd !== undefined) { p[3] += (sl === 0 ? gd : -gd) * 10; p[4]++; }
     });
   }
-  WHY = { A, N, ANS, totN, perf, blind, tEnd };
+  WHY = { A, N, ANS, totN, perf, blind, tEnd, PW, PN: PN_, PWIN, RC, RCN, TW };
 }
 function whyFor(ri, c, k = 3) {
   if (!WHY) return null;
@@ -990,6 +999,19 @@ function whyFor(ri, c, k = 3) {
   const bl = WHY.blind.get(ri + ':' + c) || [0, 0, 0, 0];
   return { blindShare: (bl[0] + bl[1]) ? bl[0] / (bl[0] + bl[1]) : null, nBlind: bl[2], nAns: bl[3], answers: answers.slice(0, 3), answeredBy: answeredBy.slice(0, 3) };
 }
+function duoFor(ri, c) {   // champions this one is picked together with (same team), by how much more often than chance
+  if (!WHY || !WHY.PW) return [];
+  const pre = ri + ':' + c + '|', mine = WHY.RC.get(ri + ':' + c) || 0, n0 = WHY.RCN.get(ri + ':' + c) || 0, out = [];
+  if (!mine || n0 < 4) return out;
+  for (const [k, w] of WHY.PW) {
+    if (!k.startsWith(pre)) continue;
+    const [r2, c2] = k.slice(pre.length).split(':').map(Number), n = WHY.PN.get(k);
+    if (n < 5) continue;
+    const exp = mine * (WHY.RC.get(r2 + ':' + c2) || 0) / WHY.TW, lift = (w + 1) / (exp + 1), share = w / mine;
+    if (lift >= 1.5 && share >= 0.15) out.push({ r2, c2, n, n0, share, lift, win: WHY.PWIN.get(k) });
+  }
+  return out.sort((a, b) => b.share - a.share).slice(0, 2);
+}
 function josa(w, a, b) { // a: after a final consonant (이/을/으로/은/과), b: otherwise (가/를/로/는/와)
   const ch = w.charCodeAt(w.length - 1);
   if (ch < 0xAC00 || ch > 0xD7A3) return w + (a === '으로' ? '(으)로' : `(${a})`.replace(/\(.*\)/, b));
@@ -1006,8 +1028,15 @@ function whyHtml(s) {
   const me = cname(c), reasons = [], parts = [];
   if (roles.length >= 2) reasons.push(`${roles.map(ri => ROLE_KO[ROLES[ri]]).join('·')} 어디로도 갈 수 있어 상대가 포지션을 읽기 어려움.`);
   if (s.p + s.b >= 6 && s.b / (s.p + s.b) >= 0.55) reasons.push(`이 구간 밴 ${s.b}번, 픽 ${s.p}번. 쓰고 싶은 카드보다 상대에게 주기 싫은 카드에 가까움.`);
+  const duoText = ri => {
+    const duo = duoFor(ri, c); if (!duo.length) return '';
+    const d = duo[0], strong = tagT(d.c2);
+    return ` ${ROLE_KO[ROLES[d.r2]]} ${josa(cname(d.c2), '과', '와')} 세트로 움직임: ${me} 픽의 ${pct(d.share)}가 ${cname(d.c2)} 조합(평소 조합 빈도의 ${d.lift.toFixed(1)}배, ${d.n}판 ${d.win}승).` +
+      (strong === 'S티어' || strong === '1티어' ? ` ${strong} ${cname(d.c2)}의 짝이라 함께 뽑히는 몫이 큼.` : '') + (duo[1] ? ` 그다음은 ${cname(duo[1].c2)}(${pct(duo[1].share)}).` : '');
+  };
   for (const ri of roles) {
-    const x = whyFor(ri, c); if (!x || x.blindShare === null) continue;
+    const x = whyFor(ri, c);
+    if (!x || x.blindShare === null) { const dt = duoText(ri); if (dt) parts.push(`<p>${ROLE_KO[ROLES[ri]]} ${me}:${dt}</p>`); continue; }
     const role = ROLE_KO[ROLES[ri]], top = x.answers[0], by = x.answeredBy[0];
     let head;
     if (x.blindShare <= 0.35) {
@@ -1024,6 +1053,7 @@ function whyHtml(s) {
     }
     const v = CS.get(ROLES[ri] + ':' + c);
     if (v && v.n >= 10 && Math.abs(v.s) >= 0.03) head += ` 팀 실력으로 예상한 것보다 ${v.s > 0 ? '더 이김' : '덜 이김'}(${v.s > 0 ? '+' : ''}${(v.s * 100).toFixed(1)}%p, ${v.n}판).`;
+    head += duoText(ri);
     let t = `<p>${head}</p>`;
     if (x.answers.length) t += `<p class="mini">이 상대를 보고 꺼냄: ${x.answers.map(a => `${nm(a.e)} ×${a.lift.toFixed(1)} — ${rec(a)}`).join(' · ')}</p>`;
     if (x.answeredBy.length) t += `<p class="mini">${josa(me, '을', '를')} 보고 상대가 꺼낸 카드: ${x.answeredBy.map(a => `${nm(a.e)} ×${a.lift.toFixed(1)} — ${me} 쪽 ${rec(a)}`).join(' · ')}</p>`;
@@ -1133,7 +1163,7 @@ function renderPickBtn() {
   else if (lg === 'NEXT') { const u = upcomingSeasons().find(x => x.lg === y); title = u ? `${u.year} ${LG_KO[y] || y} · 시작 전 예상` : `${LG_KO[y] || y} · 다음 경기 예상`; }
   else title = compName(lg, y) + (split === 'all' ? '' : split === 'po' ? ' · 플레이오프' : ' · ' + splitKo(split));
   $('#pk-title').textContent = title;
-  $('#pk-sub').textContent = (lg === 'GLOBAL' || lg === 'NEXT') ? `${fmtDate(ALL[ALL.length - 1].ts)}까지 경기 반영` : gs.length ? `${gs.length}경기 · ${fmtDate(gs[0].ts).slice(5)}~${fmtDate(gs[gs.length - 1].ts).slice(5)}` : '경기 없음';
+  $('#pk-sub').textContent = '';
 }
 function renderSegs() {
   // splits as chips
@@ -1354,8 +1384,7 @@ function renderTeams() {
   $('#tview').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === TVIEW)));
   const firstYear = { LCS: 2014, LEC: 2014, LCK: 2015, LPL: 2016 }, y0 = firstYear[lg] || (isIntl ? 2014 : 2015);
   const early = !live && +y <= y0 + 1 && !(lg === 'GLOBAL' || lg === 'NEXT');
-  $('#tasof').textContent = (live ? '레이팅은 지금 값이에요.' : `레이팅은 이 구간 마지막 경기(${fmtDate(tEnd - 1)}) 직후 값이에요. 지금 값도 옆에 함께 보여줘요.`) +
-    (early ? ` 기록은 2014년(북미·유럽), 2015년(한국), 2016년(중국)부터라 첫 1~2년은 레이팅이 자리 잡는 중이에요.` : '');
+  $('#tasof').textContent = '';
   for (const v of ['real', 'elo', 'bracket']) $('#t-' + v).hidden = TVIEW !== v;
   const R = t => teamRatingAt(t, tEnd), Rnow = t => rating(t, ST);
   if (TVIEW === 'real') renderStandings(gs, ser, R, Rnow, isIntl, live, key);
@@ -1376,7 +1405,7 @@ function renderStandings(gs, ser, R, Rnow, isIntl, live, key) {
     h += `<div class="card"><h3>${isIntl ? '토너먼트 전 단계 성적 (플레이인·그룹·스위스 합산)' : '정규 시즌 순위'}</h3><div class="tablewrap" style="border:0"><table>
       <tr><th>순위</th><th>팀</th><th class="r">매치</th><th class="r">세트</th><th class="r">세트 득실</th>${rHead}${qual.size ? '<th>결과</th>' : ''}</tr>
       ${st.map((x, i) => `<tr><td class="num">${i + 1}</td><td>${esc(x.t)}</td><td class="r num">${x.sw}승 ${x.sl}패</td><td class="r num">${x.gw}-${x.gl}</td><td class="r num">${x.gw - x.gl >= 0 ? '+' : ''}${x.gw - x.gl}</td>${rCols(x.t)}${qual.size ? `<td>${qual.has(x.t) ? `<span class="tag good">${isIntl ? '토너먼트 진출' : '플레이오프'}</span>` : ''}</td>` : ''}</tr>`).join('')}
-    </table></div><p class="note">매치 승패 → 세트 득실 순으로 정렬했어요. 동률 처리 규칙(승자승·타이브레이커)은 리그마다 달라서 실제 공식 순위와 조금 다를 수 있어요.</p></div>`;
+    </table></div></div>`;
   }
   if (po.length) {
     const pl = playoffPlaces(po), st = new Map(standingsOf(po).map(x => [x.t, x]));
@@ -1410,11 +1439,9 @@ function renderBracket(br, live) {
   let odds = '';
   if (br.odds && br.rounds.some(ms => ms.some(m => !m.win))) {
     odds = `<div class="card"><h3>남은 경기 예상</h3><div class="tablewrap" style="border:0"><table><tr><th>팀</th>${br.names.slice(1).map(n => `<th class="r">${esc(n)} 진출</th>`).join('')}<th class="r">우승</th></tr>
-      ${br.odds.map(o => `<tr><td>${esc(o.t)}</td>${o.r.slice(1).map(v => `<td class="r num">${v >= 0.995 ? '확정' : v < 0.0005 ? '-' : pct(v, v < 0.1 ? 1 : 0)}</td>`).join('')}</tr>`).join('')}</table></div>
-      <p class="note">지금 레이팅으로 남은 시리즈를 2만 번 진행해 본 결과예요(진영은 모른다고 가정). 진행 중인 시리즈는 현재 세트 스코어에서 이어서 계산해요.</p></div>`;
+      ${br.odds.map(o => `<tr><td>${esc(o.t)}</td>${o.r.slice(1).map(v => `<td class="r num">${v >= 0.995 ? '확정' : v < 0.0005 ? '-' : pct(v, v < 0.1 ? 1 : 0)}</td>`).join('')}</tr>`).join('')}</table></div></div>`;
   }
-  $('#t-bracket').innerHTML = `<div class="card"><h3>토너먼트 대진표${br.bo ? ` · ${br.bo}판 ${need}선승` : ''}</h3><div class="bracket">${cols}</div>
-    <p class="note">${br.known ? '아직 안 한 경기는 시리즈 승리 확률을 회색으로 보여줘요. 새 경기를 받으면 결과가 자동으로 채워져요.' : '플레이오프 경기 순서로 라운드를 나눴어요. 더블 엘리미네이션은 승자조·패자조 경기가 같은 열에 함께 놓일 수 있어요.'}</p></div>` + odds;
+  $('#t-bracket').innerHTML = `<div class="card"><h3>토너먼트 대진표${br.bo ? ` · ${br.bo}판 ${need}선승` : ''}</h3><div class="bracket">${cols}</div></div>` + odds;
 }
 function renderPlayersTable(gs, tEnd, live) {
   const pst = new Map();
@@ -1425,7 +1452,7 @@ function renderPlayersTable(gs, tEnd, live) {
   const plist = [...pst].map(([p, s]) => ({ p, R: live ? (ST.poff.has(p) ? prating(p) : null) : playerRatingAt(p, tEnd), Rn: ST.poff.has(p) ? prating(p) : null, ...s })).filter(x => x.R !== null).sort((a, b) => b.R - a.R);
   $('#pltable').innerHTML = `<tr><th>순위</th><th>선수</th><th>포지션</th><th>팀</th><th class="r">${live ? '레이팅' : '당시 레이팅'}</th>${live ? '' : '<th class="r">지금</th>'}<th class="r">이 구간</th></tr>` +
     plist.map((x, i) => `<tr><td class="num">${i + 1}</td><td>${esc(pname(x.p))}</td><td>${ROLE_KO[ROLES[x.role.indexOf(Math.max(...x.role))]]}</td><td>${esc(x.team)}</td><td class="r num">${Math.round(x.R)}</td>${live ? '' : `<td class="r num note">${fmtR(x.Rn)}</td>`}<td class="r num">${x.w}승 ${x.n - x.w}패</td></tr>`).join('');
-  $('#plnote').textContent = live ? '' : '당시 레이팅은 각 선수가 그 리그·시즌(스플릿)에서 마지막으로 뛴 경기 직후 값이에요.';
+  $('#plnote').textContent = '';
 }
 function renderLeagueTable(tEnd, live) {
   const has = new Set(live ? [...ST.tl.values()] : ALL.filter(g => g.ts < tEnd && g.ts > tEnd - 400 * 86400 && !INTL.has(g.lg)).map(g => g.lg));
@@ -1513,8 +1540,7 @@ function renderPredict() {
       <dt>레이팅</dt><dd class="num">${Math.round(Ra)} vs ${Math.round(Rb)} (차이 ${Math.round(Ra - Rb) >= 0 ? '+' : ''}${Math.round(Ra - Rb)})${(ROSTER_OVR.a || ROSTER_OVR.b) ? ' · 바꾼 로스터' : ''}</dd>
       <dt>단판 (진영 반영)</dt><dd class="num">${pct(1 / (1 + Math.exp(-zTeam)), 1)}${d.used ? ` → 밴픽 보정 후 ${pct(pg, 1)} (${((pg - 1 / (1 + Math.exp(-zTeam))) * 100 >= 0 ? '+' : '')}${((pg - 1 / (1 + Math.exp(-zTeam))) * 100).toFixed(1)}%p)` : ''}</dd>
       ${FMT > 1 ? `<dt>단판 (진영 모름)</dt><dd class="num">${pct(pn, 1)} → ${FMT}판 시리즈 ${pct(pser, 1)}</dd>` : ''}
-    </dl>
-    <p class="note">${FMT > 1 ? '시리즈 확률은 각 판을 독립으로 보고 진영 효과를 뺀 단판 승률로 계산해요. 밴픽 보정은 단판에만 적용돼요. ' : ''}블루 진영은 레이팅 +${CFG.H}점만큼 유리하게 계산해요.</p>`;
+    </dl>`;
   $('#dnote').textContent = d.used ? `${d.used}개 포지션 반영` : '';
 }
 function buildDraftInputs() {
@@ -2093,8 +2119,7 @@ function renderNext(g, k, st, R) {
   const names = simTeams(g), kind = DSTEP[st.step][0];
   const top = [...CH.keys()].filter(c => R.p[c] > 0).sort((a, b) => R.p[b] - R.p[a]).slice(0, 8);
   $('#snext').innerHTML = `<h3>다음 ${kind === 'ban' ? '밴' : '픽'} 예상 · ${st.side === 0 ? '블루' : '레드'} ${esc(names[st.side])}</h3>
-    <ol class="cands">${top.map(c => { const opn = kind === 'pick' ? R.F.openT : R.F.openE; let rr = -1; for (const x of opn) if (rr < 0 || SIM.M.share[c * 5 + x] > SIM.M.share[c * 5 + rr]) rr = x; return `<li><button class="cand" data-c="${c}">${ci(c)}<span><span class="nmrow"><b>${esc(cname(c))}</b>${rr >= 0 && kind === 'pick' ? `<span class="tag">${ROLE_SHORT[rr]}</span>` : ''}</span><div class="mbar"><i style="width:${(R.p[c] / R.p[top[0]] * 100).toFixed(0)}%"></i></div><span class="why">${candReasons(R, c, st).join(' · ') || '여러 요인이 고르게 작용해요'}</span></span><span class="pv">${pct(R.p[c], R.p[c] < 0.1 ? 1 : 0)}</span></button></li>`; }).join('')}</ol>
-    <p class="note" style="margin-top:8px">프로 팀들이 이런 상황에서 실제로 고른 기록으로 학습한 예상이에요. 누르면 그 챔피언으로 진행해요. 2026년 경기로 시험했을 때 실제 선택이 1순위인 경우 24%, 5순위 안 62%였어요.</p>`;
+    <ol class="cands">${top.map(c => { const opn = kind === 'pick' ? R.F.openT : R.F.openE; let rr = -1; for (const x of opn) if (rr < 0 || SIM.M.share[c * 5 + x] > SIM.M.share[c * 5 + rr]) rr = x; return `<li><button class="cand" data-c="${c}">${ci(c)}<span><span class="nmrow"><b>${esc(cname(c))}</b>${rr >= 0 && kind === 'pick' ? `<span class="tag">${ROLE_SHORT[rr]}</span>` : ''}</span><div class="mbar"><i style="width:${(R.p[c] / R.p[top[0]] * 100).toFixed(0)}%"></i></div><span class="why">${candReasons(R, c, st).join(' · ') || '여러 요인이 고르게 작용해요'}</span></span><span class="pv">${pct(R.p[c], R.p[c] < 0.1 ? 1 : 0)}</span></button></li>`; }).join('')}</ol>`;
 }
 function renderResult(g, k, wp) {
   const names = simTeams(g), d = wp.now - wp.pre, better = d >= 0 ? 0 : 1;
@@ -2107,7 +2132,6 @@ function renderResult(g, k, wp) {
     <p class="verdict">${Math.abs(d) < 0.005 ? '두 팀 밴픽이 거의 비슷해요.' : `<span style="color:${better === 0 ? 'var(--blue)' : 'var(--red)'}">${better === 0 ? '블루' : '레드'} ${esc(names[better])}</span> 쪽이 밴픽으로 <b>${(Math.abs(d) * 100).toFixed(1)}%p</b> 이득을 봤어요.`}<br>
     <span class="note">팀 실력·진영만으로 블루 ${pct(wp.pre, 1)} → 밴픽 반영 ${pct(wp.now, 1)}</span></p>
     <div class="lanes" style="margin-top:10px"><span class="h"></span><span class="h">블루 ${esc(names[0])}</span><span class="h">유리한 쪽</span><span class="h" style="text-align:right">레드 ${esc(names[1])}</span><span></span>${lanes}</div>
-    <p class="note" style="margin-top:8px">포지션별 값은 그 챔피언이 최근 90일 프로 경기에서 팀 실력 예상보다 얼마나 더 이겼는지로 잰 차이예요. 같은 실력이면 보통 ±2~4%p 범위예요.</p>
     ${g.win === null ? `<div class="row" style="margin-top:10px"><span class="note">이 세트 결과:</span><button data-win="0" class="primary" style="background:var(--blue);border-color:var(--blue)">${esc(names[0])} 승리</button><button data-win="1" class="primary" style="background:var(--red);border-color:var(--red)">${esc(names[1])} 승리</button></div>`
       : k < SIM.games.length - 1 ? `<div class="row" style="margin-top:10px"><button data-act="goto" data-g="${k + 1}">${k + 2}세트 보기</button></div>`
       : over ? `<p style="margin-top:10px"><b>${esc(seriesScore()[0] > seriesScore()[1] ? SIM.A : SIM.B)}</b> 시리즈 승리 (${seriesScore().join(' : ')})</p>` : `<div class="row" style="margin-top:10px"><button class="primary" data-act="next">${k + 2}세트로</button><span class="note">진 팀이 블루·선픽을 가져가요. 시작 전에 바꿀 수 있어요.</span></div>`}`;
@@ -2127,8 +2151,7 @@ function renderPhase(g, wp, done) {
     <dl class="kv"><dt>초반</dt><dd>${lead(g10.team + g10.draft, 10)} (${only(g10.draft)})</dd>
     <dt>중반</dt><dd>${lead(g25.team + g25.draft, 25)} (${only(g25.draft)})</dd>
     <dt>후반</dt><dd>${lateTxt}</dd>
-    ${laneTxt.length ? `<dt>15분 라인</dt><dd>${laneTxt.join(' · ')} (밴픽만)</dd>` : ''}</dl>
-    <p class="note" style="margin-top:8px">각 챔피언이 그 포지션에서 최근 프로 경기 몇 분에 팀 실력 예상보다 골드를 얼마나 더 벌었는지를 합친 값이에요. 2025~26년 경기로 시험하면 밴픽을 넣었을 때 골드 차이 설명력이 10분 4.8%→8.7%, 15분 6.5%→9.6%, 25분 10.6%→12.5%로 올라가요. 경기 흐름의 대부분은 밴픽 밖(운영·실수)에서 정해진다는 뜻이라 방향을 보는 용도로 쓰세요.</p>` : '<p class="note">픽이 나오면 10·15·20·25분 예상 골드 차이와 후반 유불리를 그려요.</p>'}`;
+    ${laneTxt.length ? `<dt>15분 라인</dt><dd>${laneTxt.join(' · ')} (밴픽만)</dd>` : ''}</dl>` : '<p class="note">픽이 나오면 10·15·20·25분 예상 골드 차이와 후반 유불리를 그려요.</p>'}`;
 }
 function renderKeys(g, k, done) {
   const box = $('#skey'), names = simTeams(g);
@@ -2149,7 +2172,6 @@ function drawKeys(g, k, res) {
     ${rows.map(x => { const im = impact(x.c); const who = x.pb >= x.pr ? 0 : 1; return `<div class="keyc">${ci(x.c)}<div><b>${esc(cname(x.c))}</b> <span class="note">끝까지 밴픽될 확률 ${pct(Math.min(1, x.t))}</span>
       <div class="stack" aria-hidden="true"><i class="pb_" style="width:${(x.pb * 100).toFixed(1)}%"></i><i class="pr_" style="width:${(x.pr * 100).toFixed(1)}%"></i><i class="bn_" style="width:${(x.bn * 100).toFixed(1)}%"></i></div>
       <div class="kt">블루 픽 <b>${pct(x.pb)}</b> · 레드 픽 <b>${pct(x.pr)}</b> · 밴 <b>${pct(x.bn)}</b>${Math.abs(im.b) >= 0.003 ? ` · ${esc(names[who])} 쪽에 가면 ${who === 0 ? (im.b >= 0 ? '+' : '−') + (Math.abs(im.b) * 100).toFixed(1) : (im.r >= 0 ? '+' : '−') + (Math.abs(im.r) * 100).toFixed(1)}%p` : ''}</div></div></div>`; }).join('')}
-    <p class="note" style="margin-top:6px">지금 상황에서 남은 밴픽을 예상 모델로 300번 끝까지 진행해 본 결과예요. 두 팀이 서로 노리는 카드일수록 위에 와요.</p>
     ${SIM.fear && SIM.cur > 0 ? `<h3 style="margin-top:12px">앞 세트에서 쓴 챔피언</h3>${usedHtml()}` : ''}`;
   const note = $('#srollwp'); if (note) note.textContent = ` · 끝까지 예상대로면 평균 ${pct(res.wp)}`;
 }
