@@ -3,7 +3,7 @@
    bans, pick order and first-pick team) -> data/extra.json
 2. Champion names and icon ids from Riot Data Dragon, champions changed in each new patch from the LoL Wiki -> data/meta.json
 The page (index.html) loads both files on start and replays the new games through its rating and tier models."""
-import calendar, json, os, re, sys, time, urllib.parse, urllib.request
+import calendar, http.cookiejar, json, os, re, sys, time, urllib.parse, urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(ROOT, "data")
 UA = "LoLProTier/1.0 (+https://github.com; daily update, low request rate)"
@@ -13,13 +13,15 @@ SPECIAL = {"nunuwillump": "nunu", "monkeyking": "wukong", "renataglasc": "renata
 def ckey(s):
     k = re.sub(r"[^a-z0-9]", "", str(s or "").lower()); return SPECIAL.get(k, k) if k else ""
 START = time.time()
-BUDGET = 40 * 60   # stop waiting on rate limits after 40 minutes; tomorrow's run continues from the same point
-def get_json(url, params, tries=8):
+BUDGET = 25 * 60   # Leaguepedia only: stop waiting on its rate limit after 25 minutes; the next run continues from the same point
+OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+def get_json(url, params, tries=8, data=None):
     q = url + "?" + urllib.parse.urlencode(params)
     for i in range(tries):
-        if time.time() - START > BUDGET: raise RuntimeError("time budget used up")
+        if url == LP and time.time() - START > BUDGET: raise RuntimeError("time budget used up")
         try:
-            with urllib.request.urlopen(urllib.request.Request(q, headers={"User-Agent": UA}), timeout=60) as r:
+            req = urllib.request.Request(q, headers={"User-Agent": UA}, data=urllib.parse.urlencode(data).encode() if data else None)
+            with OPENER.open(req, timeout=60) as r:
                 d = json.loads(r.read().decode("utf-8"))
         except Exception as e:
             print("  http error:", e, flush=True); time.sleep(20 * (i + 1)); continue
@@ -29,6 +31,16 @@ def get_json(url, params, tries=8):
             raise RuntimeError(d["error"].get("info") or code)
         return d
     raise RuntimeError("gave up after retries: " + url)
+def lp_login():
+    """Optional: a Leaguepedia bot password (Special:BotPasswords) in the repository secrets LEAGUEPEDIA_USER / LEAGUEPEDIA_PASS
+    lifts the strict limit the wiki puts on anonymous queries from cloud servers."""
+    u, pw = os.environ.get("LEAGUEPEDIA_USER"), os.environ.get("LEAGUEPEDIA_PASS")
+    if not u or not pw: print("Leaguepedia: anonymous", flush=True); return
+    try:
+        tok = get_json(LP, {"action": "query", "meta": "tokens", "type": "login", "format": "json"})["query"]["tokens"]["logintoken"]
+        r = get_json(LP, {"action": "login", "format": "json"}, data={"lgname": u, "lgpassword": pw, "lgtoken": tok})
+        print("Leaguepedia login:", r.get("login", {}).get("result"), flush=True)
+    except Exception as e: print("Leaguepedia login failed:", e, flush=True)
 def cargo(**p):
     p = {"action": "cargoquery", "format": "json", "limit": "500", **p}
     d = get_json(LP, p); time.sleep(3)
@@ -111,7 +123,8 @@ def fetch_games(since):
     return out
 
 # Oracle's Elixir (official Google Drive folder): the current year's file has pick order, first pick and gold differences.
-# Drive sometimes refuses downloads of popular files ("quota exceeded"); then Leaguepedia alone is used that day.
+# Drive sometimes refuses downloads of popular files ("quota exceeded"); then Leaguepedia alone is used for that run,
+# and the workflow runs three times a day so a busy morning does not cost a whole day.
 OE_FOLDER = "1gLSw0RLjBbtaNy0dgnGQDAZOHIgCe-HH"
 OE_LG = {"LCK", "LPL", "LEC", "LCS", "LTA N", "LTA S", "LTA", "LCP", "PCS", "VCS", "CBLOL", "LJL", "TCL", "LLA", "WLDs", "MSI", "FST", "EWC"}
 POS = ["top", "jng", "mid", "bot", "sup"]
@@ -129,9 +142,16 @@ def fetch_oe(since_ts, extra_leagues=()):
     for y in sorted({time.gmtime(since_ts).tm_year, time.gmtime().tm_year}):
         fid = files.get(f"{y}_LoL_esports_match_data_from_OraclesElixir.csv")
         if not fid: continue
-        try: text = http_text(f"https://drive.usercontent.google.com/download?id={fid}&export=download&confirm=t")
-        except Exception as e: print("Oracle's Elixir download failed:", e, flush=True); continue
-        if not text.startswith("gameid"): print(f"Oracle's Elixir {y}: download refused (quota)", flush=True); continue
+        text = ""
+        for t in range(3):   # Drive answers big files with a confirmation page first, and busy files with a "quota" page
+            try: text = http_text(f"https://drive.usercontent.google.com/download?id={fid}&export=download&confirm=t" + (f"&uuid={uid}" if t and uid else ""))
+            except Exception as e: print("Oracle's Elixir download failed:", e, flush=True); text = ""
+            if text.startswith("gameid"): break
+            m = re.search(r'name="uuid" value="([^"]+)"', text); uid = m.group(1) if m else ""
+            ttl = re.search(r"<title>([^<]*)</title>", text)
+            print(f"Oracle's Elixir {y}: not the data file ({(ttl.group(1) if ttl else text[:80]).strip()})", flush=True)
+            if not uid: time.sleep(30)
+        if not text.startswith("gameid"): print(f"Oracle's Elixir {y}: download refused; the next run tries again", flush=True); continue
         games = {}
         for row in csv.DictReader(io.StringIO(text)):
             if row.get("league") not in OE_LG and row.get("league") not in extra_leagues: continue
@@ -215,6 +235,7 @@ def main():
     last = max([base["until"]] + [g[0] for g in ex["games"]])
     since = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(last + 60))
     print("looking for games after", since, "UTC on Leaguepedia", flush=True)
+    lp_login()
     try: new = fetch_games(since)
     except Exception as e: print("games not updated today:", e, flush=True); new = []
     have = {key(g) for g in ex["games"]}
