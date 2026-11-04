@@ -1091,7 +1091,7 @@ function duoFor(ri, c) {   // champions this one is picked together with (same t
     const [r2, c2] = k.slice(pre.length).split(':').map(Number), n = WHY.PN.get(k);
     if (n < 5) continue;
     const exp = mine * (WHY.RC.get(r2 + ':' + c2) || 0) / WHY.TW, lift = (w + 1) / (exp + 1), share = w / mine;
-    if (lift >= 1.5 && share >= 0.15) out.push({ r2, c2, n, n0, share, lift, win: WHY.PWIN.get(k) });
+    if (lift >= 2 && share >= 0.2) out.push({ r2, c2, n, n0, share, lift, win: WHY.PWIN.get(k) });   // a real pair: twice the chance level and a fifth of this champion's games
   }
   return out.sort((a, b) => b.share - a.share).slice(0, 2);
 }
@@ -1126,10 +1126,10 @@ function duoAllFor(ri, c) {
   if (n0 < 10) return [];
   const out = [];
   for (const [k2, [n, win, y0, y1]] of m) {
-    if (n < 8) continue;
+    if (n < 30) continue;
     let exp = 0; for (const YY of A.Y.values()) exp += (YY.RC.get(kc) || 0) * (YY.RC.get(k2) || 0) / Math.max(YY.TW, 1);
     const lift = (n + 1) / (exp + 1), share = n / n0;
-    if (lift >= 1.5 && share >= 0.08) out.push({ r2: Math.floor(k2 / 10000), c2: k2 % 10000, n, n0, win, y0, y1, lift, share });
+    if (lift >= 2.5 && share >= 0.1) out.push({ r2: Math.floor(k2 / 10000), c2: k2 % 10000, n, n0, win, y0, y1, lift, share });
   }
   return out.sort((a, b) => b.n * Math.log(b.lift) - a.n * Math.log(a.lift)).slice(0, 2);
 }
