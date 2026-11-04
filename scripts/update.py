@@ -1,9 +1,12 @@
 """Daily update for LoL Pro Tier (runs in GitHub Actions; Python standard library only).
 1. New pro games since the last update from the Leaguepedia Cargo API (results, champions by role, players,
    bans, pick order and first-pick team) -> data/extra.json
-2. Champion names and icon ids from Riot Data Dragon, champions changed in each new patch from the LoL Wiki -> data/meta.json
+2. Champion names and icon ids from Riot Data Dragon, champions changed in each new patch from the LoL Wiki,
+   champion traits for the composition model (scripts/champ_traits.py) -> data/meta.json
 The page (index.html) loads both files on start and replays the new games through its rating and tier models."""
 import calendar, http.cookiejar, json, os, re, sys, time, urllib.parse, urllib.request
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import champ_traits
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(ROOT, "data")
 UA = "LoLProTier/1.0 (+https://github.com; daily update, low request rate)"
@@ -13,7 +16,7 @@ SPECIAL = {"nunuwillump": "nunu", "monkeyking": "wukong", "renataglasc": "renata
 def ckey(s):
     k = re.sub(r"[^a-z0-9]", "", str(s or "").lower()); return SPECIAL.get(k, k) if k else ""
 START = time.time()
-BUDGET = 25 * 60   # Leaguepedia only: stop waiting on its rate limit after 25 minutes; the next run continues from the same point
+BUDGET = 15 * 60   # Leaguepedia only (anonymous): stop waiting on its rate limit after 15 minutes; the next run continues from the same point
 OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 def get_json(url, params, tries=8, data=None):
     q = url + "?" + urllib.parse.urlencode(params)
@@ -31,16 +34,6 @@ def get_json(url, params, tries=8, data=None):
             raise RuntimeError(d["error"].get("info") or code)
         return d
     raise RuntimeError("gave up after retries: " + url)
-def lp_login():
-    """Optional: a Leaguepedia bot password (Special:BotPasswords) in the repository secrets LEAGUEPEDIA_USER / LEAGUEPEDIA_PASS
-    lifts the strict limit the wiki puts on anonymous queries from cloud servers."""
-    u, pw = os.environ.get("LEAGUEPEDIA_USER"), os.environ.get("LEAGUEPEDIA_PASS")
-    if not u or not pw: print("Leaguepedia: anonymous", flush=True); return
-    try:
-        tok = get_json(LP, {"action": "query", "meta": "tokens", "type": "login", "format": "json"})["query"]["tokens"]["logintoken"]
-        r = get_json(LP, {"action": "login", "format": "json"}, data={"lgname": u, "lgpassword": pw, "lgtoken": tok})
-        print("Leaguepedia login:", r.get("login", {}).get("result"), flush=True)
-    except Exception as e: print("Leaguepedia login failed:", e, flush=True)
 def cargo(**p):
     p = {"action": "cargoquery", "format": "json", "limit": "500", **p}
     d = get_json(LP, p); time.sleep(3)
@@ -193,7 +186,18 @@ def update_meta(meta):
         meta["ddv"] = v
         meta["champs"] = [[ckey(c["name"]), c["name"], ko.get(i, c)["name"], i, c.get("tags", [])] for i, c in en.items()]
         print("Data Dragon", v, len(meta["champs"]), "champions", flush=True)
-    except Exception as e: print("Data Dragon not updated:", e, flush=True)
+    except Exception as e: print("Data Dragon not updated:", e, flush=True); v = None
+    try:   # traits: damage type, frontline, engage, skill poke, dive, peel, hypercarry (new champions and reworks included)
+        if v and (meta.get("traits_v") != v or time.gmtime().tm_wday == 0):
+            full = get_json(f"https://ddragon.leagueoflegends.com/cdn/{v}/data/en_US/championFull.json", {})
+            pg = get_json(WIKI, {"action": "query", "prop": "revisions", "titles": "Module:ChampionData/data", "rvprop": "content", "rvslots": "main", "format": "json"})
+            lua = list(pg["query"]["pages"].values())[0]["revisions"][0]["slots"]["main"]["*"]
+            T = champ_traits.build(champ_traits.lua_parse(lua), full)
+            if champ_traits.sane(T):
+                meta["traits"] = {k: [t[x] for x in champ_traits.ORDER] for k, t in T.items()}; meta["traits_v"] = v
+                print("champion traits:", len(T), flush=True)
+            else: print("champion traits not updated: the wiki data looks different now (kept the previous traits)", flush=True)
+    except Exception as e: print("champion traits not updated:", e, flush=True)
     pn = meta.setdefault("pn", {})
     try:
         known = set(pn) | set(meta.get("pn_base", []))
@@ -235,7 +239,6 @@ def main():
     last = max([base["until"]] + [g[0] for g in ex["games"]])
     since = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(last + 60))
     print("looking for games after", since, "UTC on Leaguepedia", flush=True)
-    lp_login()
     try: new = fetch_games(since)
     except Exception as e: print("games not updated today:", e, flush=True); new = []
     have = {key(g) for g in ex["games"]}
