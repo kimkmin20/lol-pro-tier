@@ -149,7 +149,8 @@ def main():
     last = max([base["until"]] + [g[0] for g in ex["games"]])
     since = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(last + 60))
     print("looking for games after", since, "UTC", flush=True)
-    new = fetch_games(since)
+    try: new = fetch_games(since)
+    except Exception as e: print("games not updated today:", e, flush=True); new = []
     have = {(round(g[0] / 600), tuple(sorted([g[5].lower(), g[6].lower()]))) for g in ex["games"]}
     added = 0
     for g in new:
