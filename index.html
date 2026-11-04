@@ -591,8 +591,19 @@ function eloStep(st, g) {
   if (pr.length === 5) st.roster.set(g.r, pr);
   g.Pb = Math.round(rating(g.b, st, pb)); g.Pr = Math.round(rating(g.r, st, pr));
 }
+/* an event code never seen before whose teams come from three or more different leagues is an international event */
+function detectIntl(st) {
+  const by = new Map();
+  for (const g of EXTRA) {
+    if (INTL.has(g.lg) || LG_KO[g.lg] || st.L[g.lg] !== undefined) continue;
+    if (!by.has(g.lg)) by.set(g.lg, new Set());
+    for (const t of [g.b, g.r]) { const l = st.tl.get(t); if (l && l !== 'OTHER') by.get(g.lg).add(l); }
+  }
+  for (const [lg, ls] of by) if (ls.size >= 3) INTL.add(lg);
+}
 function rebuild() {
   ST = freshState();
+  detectIntl(ST);
   EXTRA.sort((a, b) => a.ts - b.ts);
   for (const g of EXTRA) eloStep(ST, g);
   ALL = SNAP.concat(EXTRA);
@@ -1984,22 +1995,22 @@ function candReasons(r, c, st) {
   const best = (roles, fn) => { let bv = -Infinity, br = null; for (const x of roles) { const v = fn(x); if (v > bv) { bv = v; br = x; } } return br; };
   const txt = k => {
     switch (k) {
-      case 'meta': return `요즘 메타 카드 (이 ${SIM.ctxLeague === 'GLOBAL' ? '시기' : '리그·대회'} 밴픽률 ${pct(Math.max(0, Math.exp(SIM.ctx.popL[c]) - EPS))})`;
-      case 'role': { const rr = best(r.F.openT, x => sh[c * 5 + x]); return rr === null ? '남은 포지션에 맞아요' : `남은 ${ROLE_KO[ROLES[rr]]} 자리에 맞아요`; }
-      case 'erole': { const rr = best(r.F.openE, x => sh[c * 5 + x]); return rr === null ? '상대 남은 포지션에 맞아요' : `상대가 아직 못 고른 ${ROLE_KO[ROLES[rr]]} 자리 카드예요`; }
-      case 'answer': { const rr = best(r.F.openT.filter(x => x in r.F.mE), x => sh[c * 5 + x] * dmLift(M, x, r.F.mE[x])[c]); return rr === null ? '상대 픽을 받아치는 카드예요' : `상대 ${esc(cname(r.F.mE[rr]))} 받아치기 카드예요`; }
-      case 'timing': { let bl = 0, an = 0; for (const x of r.F.openT) { const v = sh[c * 5 + x] * M.lbs[c * 5 + x]; if (x in r.F.mE) an -= v; else bl += v; } return bl >= an ? '먼저 꺼내도 되는 카드예요' : '상대를 보고 꺼내기 좋은 카드예요'; }
-      case 'syn': { const x = best(st.own, y => dmSyn(M, y)[c]); return x === null ? '우리 조합과 잘 맞아요' : `${esc(josa(cname(x), '과', '와'))} 같이 자주 써요`; }
-      case 'esyn': { const x = best(st.enemy, y => dmSyn(M, y)[c]); return x === null ? '상대 조합과 잘 맞아요' : `상대 ${esc(josa(cname(x), '과', '와'))} 궁합이 좋아요`; }
-      case 'prof': { const rr = best(r.F.openT.filter(x => st.pT[x]), x => sh[c * 5 + x] * Math.log1p((M.PC.get(st.pT[x]) || [])[c] || 0)); return rr === null ? '선수가 자주 쓰는 챔피언이에요' : `${esc(pname(st.pT[rr]))} 선수가 자주 써요`; }
-      case 'eprof': { const rr = best(r.F.openE.filter(x => st.pE[x]), x => sh[c * 5 + x] * Math.log1p((M.PC.get(st.pE[x]) || [])[c] || 0)); return rr === null ? '상대 선수의 주력이에요' : `상대 ${esc(pname(st.pE[rr]))} 선수의 주력이에요`; }
-      case 'team': return '이 팀이 최근 자주 골랐어요';
-      case 'tban': return '이 팀이 자주 밴하는 카드예요';
-      case 'eteam': return '상대 팀이 최근 자주 골랐어요';
-      case 'deny': return '상대에게도 필요한 카드라 먼저 가져가는 효과도 있어요';
-      case 'threat': { const rr = best(Object.keys(r.F.mT).map(Number).filter(x => r.F.openE.includes(x)), x => sh[c * 5 + x] * dmLift(M, x, r.F.mT[x])[c]); return rr === null ? '우리 픽을 받아칠 수 있는 카드예요' : `우리 ${esc(josa(cname(r.F.mT[rr]), '을', '를'))} 받아칠 수 있는 카드예요`; }
-      case 'own': return '우리 선수들은 잘 안 쓰는 카드라 밴 부담이 적어요';
-      case 'series': return st.serT && st.serT.has(c) ? '앞 세트에서도 밴했어요' : '앞 세트에서 상대가 밴했던 카드예요';
+      case 'meta': return `요즘 메타 카드 (이 ${SIM.ctxLeague === 'GLOBAL' ? '시기' : INTL.has(SIM.ctxLeague) ? '대회' : '리그'} 밴픽률 ${pct(Math.max(0, Math.exp(SIM.ctx.popL[c]) - EPS))})`;
+      case 'role': { const rr = best(r.F.openT, x => sh[c * 5 + x]); return rr === null ? '남은 포지션에 맞음' : `남은 ${ROLE_KO[ROLES[rr]]} 자리에 맞음`; }
+      case 'erole': { const rr = best(r.F.openE, x => sh[c * 5 + x]); return rr === null ? '상대 남은 포지션에 맞음' : `상대가 아직 못 고른 ${ROLE_KO[ROLES[rr]]} 자리 카드`; }
+      case 'answer': { const rr = best(r.F.openT.filter(x => x in r.F.mE), x => sh[c * 5 + x] * dmLift(M, x, r.F.mE[x])[c]); return rr === null ? '상대 픽을 받아치는 카드' : `상대 ${esc(cname(r.F.mE[rr]))} 받아치기 카드`; }
+      case 'timing': { let bl = 0, an = 0; for (const x of r.F.openT) { const v = sh[c * 5 + x] * M.lbs[c * 5 + x]; if (x in r.F.mE) an -= v; else bl += v; } return bl >= an ? '먼저 꺼내도 되는 카드' : '상대를 보고 꺼내기 좋은 카드'; }
+      case 'syn': { const x = best(st.own, y => dmSyn(M, y)[c]); return x === null ? '우리 조합과 잘 맞음' : `${esc(josa(cname(x), '과', '와'))} 같이 자주 씀`; }
+      case 'esyn': { const x = best(st.enemy, y => dmSyn(M, y)[c]); return x === null ? '상대 조합과 잘 맞음' : `상대 ${esc(josa(cname(x), '과', '와'))} 궁합 좋음`; }
+      case 'prof': { const rr = best(r.F.openT.filter(x => st.pT[x]), x => sh[c * 5 + x] * Math.log1p((M.PC.get(st.pT[x]) || [])[c] || 0)); return rr === null ? '선수가 자주 쓰는 챔피언' : `${esc(pname(st.pT[rr]))} 선수가 자주 씀`; }
+      case 'eprof': { const rr = best(r.F.openE.filter(x => st.pE[x]), x => sh[c * 5 + x] * Math.log1p((M.PC.get(st.pE[x]) || [])[c] || 0)); return rr === null ? '상대 선수의 주력' : `상대 ${esc(pname(st.pE[rr]))} 선수의 주력`; }
+      case 'team': return '이 팀이 최근 자주 고름';
+      case 'tban': return '이 팀이 자주 밴하는 카드';
+      case 'eteam': return '상대 팀이 최근 자주 고름';
+      case 'deny': return '상대에게도 필요한 카드라 먼저 가져가는 효과';
+      case 'threat': { const rr = best(Object.keys(r.F.mT).map(Number).filter(x => r.F.openE.includes(x)), x => sh[c * 5 + x] * dmLift(M, x, r.F.mT[x])[c]); return rr === null ? '우리 픽을 받아칠 수 있는 카드' : `우리 ${esc(josa(cname(r.F.mT[rr]), '을', '를'))} 받아칠 수 있는 카드`; }
+      case 'own': return '우리 선수가 잘 안 쓰는 카드라 밴 부담 적음';
+      case 'series': return st.serT && st.serT.has(c) ? '앞 세트에서도 밴함' : '앞 세트에서 상대가 밴한 카드';
     }
     return '';
   };
@@ -2119,7 +2130,7 @@ function renderSim() {
   $('#stiles').innerHTML = order.map(c => {
     const dis = done || !av[c], fear = used.has(c);
     return `<button class="tile ${fear ? 'fear' : ''}" data-c="${c}" ${dis ? 'disabled' : ''} title="${esc(cname(c))}${fear ? ' (앞 세트에서 사용)' : ''}">${ci(c)}<span class="tn">${esc(cname(c))}</span>${!dis && topSet.has(c) ? `<span class="pb">${Math.round(R.p[c] * 100)}%</span>` : ''}${fear ? '<span class="fx">F</span>' : ''}</button>`;
-  }).join('') || '<p class="note">조건에 맞는 챔피언이 없어요.</p>';
+  }).join('') || '<p class="note">조건에 맞는 챔피언 없음.</p>';
   $('#sundo').disabled = !g.acts.length || g.win !== null; $('#sauto1').disabled = done; $('#sautoall').disabled = done; $('#sreset').disabled = !g.acts.length || g.win !== null;
   $('#sctx').textContent = `밴픽 예상 기준: ${SIM.ctxLeague === 'GLOBAL' ? '전 세계 경기' : (LG_KO[SIM.ctxLeague] || SIM.ctxLeague) + ' 경기에 무게'} · ${fmtDate(SIM.M.tRef - 1)}까지 · 패치 ${SIM.ctx.patch || '-'}${SIM.fear && SIM.fmt > 1 ? ' · 피어리스: 앞 세트에서 픽한 챔피언은 두 팀 모두 못 써요' : ''}`;
   // next-move panel or result summary
@@ -2131,7 +2142,7 @@ function renderNext(g, k, st, R) {
   const names = simTeams(g), kind = DSTEP[st.step][0];
   const top = [...CH.keys()].filter(c => R.p[c] > 0).sort((a, b) => R.p[b] - R.p[a]).slice(0, 8);
   $('#snext').innerHTML = `<h3>다음 ${kind === 'ban' ? '밴' : '픽'} 예상 · ${st.side === 0 ? '블루' : '레드'} ${esc(names[st.side])}</h3>
-    <ol class="cands">${top.map(c => { const opn = kind === 'pick' ? R.F.openT : R.F.openE; let rr = -1; for (const x of opn) if (rr < 0 || SIM.M.share[c * 5 + x] > SIM.M.share[c * 5 + rr]) rr = x; return `<li><button class="cand" data-c="${c}">${ci(c)}<span><span class="nmrow"><b>${esc(cname(c))}</b>${rr >= 0 && kind === 'pick' ? `<span class="tag">${ROLE_SHORT[rr]}</span>` : ''}</span><div class="mbar"><i style="width:${(R.p[c] / R.p[top[0]] * 100).toFixed(0)}%"></i></div><span class="why">${candReasons(R, c, st).join(' · ') || '여러 요인이 고르게 작용해요'}</span></span><span class="pv">${pct(R.p[c], R.p[c] < 0.1 ? 1 : 0)}</span></button></li>`; }).join('')}</ol>`;
+    <ol class="cands">${top.map(c => { const opn = kind === 'pick' ? R.F.openT : R.F.openE; let rr = -1; for (const x of opn) if (rr < 0 || SIM.M.share[c * 5 + x] > SIM.M.share[c * 5 + rr]) rr = x; return `<li><button class="cand" data-c="${c}">${ci(c)}<span><span class="nmrow"><b>${esc(cname(c))}</b>${rr >= 0 && kind === 'pick' ? `<span class="tag">${ROLE_SHORT[rr]}</span>` : ''}</span><div class="mbar"><i style="width:${(R.p[c] / R.p[top[0]] * 100).toFixed(0)}%"></i></div><span class="why">${candReasons(R, c, st).join(' · ') || '여러 요인이 고르게 작용함'}</span></span><span class="pv">${pct(R.p[c], R.p[c] < 0.1 ? 1 : 0)}</span></button></li>`; }).join('')}</ol>`;
 }
 function renderResult(g, k, wp) {
   const names = simTeams(g), d = wp.now - wp.pre, better = d >= 0 ? 0 : 1;
@@ -2141,12 +2152,12 @@ function renderResult(g, k, wp) {
   }).join('');
   const over = seriesOver();
   $('#snext').innerHTML = `<h3>밴픽 결과</h3>
-    <p class="verdict">${Math.abs(d) < 0.005 ? '두 팀 밴픽이 거의 비슷해요.' : `<span style="color:${better === 0 ? 'var(--blue)' : 'var(--red)'}">${better === 0 ? '블루' : '레드'} ${esc(names[better])}</span> 쪽이 밴픽으로 <b>${(Math.abs(d) * 100).toFixed(1)}%p</b> 이득을 봤어요.`}<br>
+    <p class="verdict">${Math.abs(d) < 0.005 ? '두 팀 밴픽이 거의 비슷함.' : `<span style="color:${better === 0 ? 'var(--blue)' : 'var(--red)'}">${better === 0 ? '블루' : '레드'} ${esc(names[better])}</span> 쪽이 밴픽으로 <b>${(Math.abs(d) * 100).toFixed(1)}%p</b> 이득.`}<br>
     <span class="note">팀 실력·진영만으로 블루 ${pct(wp.pre, 1)} → 밴픽 반영 ${pct(wp.now, 1)}</span></p>
     <div class="lanes" style="margin-top:10px"><span class="h"></span><span class="h">블루 ${esc(names[0])}</span><span class="h">유리한 쪽</span><span class="h" style="text-align:right">레드 ${esc(names[1])}</span><span></span>${lanes}</div>
     ${g.win === null ? `<div class="row" style="margin-top:10px"><span class="note">이 세트 결과:</span><button data-win="0" class="primary" style="background:var(--blue);border-color:var(--blue)">${esc(names[0])} 승리</button><button data-win="1" class="primary" style="background:var(--red);border-color:var(--red)">${esc(names[1])} 승리</button></div>`
       : k < SIM.games.length - 1 ? `<div class="row" style="margin-top:10px"><button data-act="goto" data-g="${k + 1}">${k + 2}세트 보기</button></div>`
-      : over ? `<p style="margin-top:10px"><b>${esc(seriesScore()[0] > seriesScore()[1] ? SIM.A : SIM.B)}</b> 시리즈 승리 (${seriesScore().join(' : ')})</p>` : `<div class="row" style="margin-top:10px"><button class="primary" data-act="next">${k + 2}세트로</button><span class="note">진 팀이 블루·선픽을 가져가요. 시작 전에 바꿀 수 있어요.</span></div>`}`;
+      : over ? `<p style="margin-top:10px"><b>${esc(seriesScore()[0] > seriesScore()[1] ? SIM.A : SIM.B)}</b> 시리즈 승리 (${seriesScore().join(' : ')})</p>` : `<div class="row" style="margin-top:10px"><button class="primary" data-act="next">${k + 2}세트로</button><span class="note">진 팀이 블루·선픽. 시작 전에 바꿀 수 있음.</span></div>`}`;
 }
 function renderPhase(g, wp, done) {
   const ph = phaseOf(wp), names = simTeams(g);
@@ -2155,7 +2166,7 @@ function renderPhase(g, wp, done) {
   const g10 = ph.gold[0], g25 = ph.gold[3];
   const lead = (v, m) => Math.abs(v) < 50 ? `${m}분엔 거의 비슷` : `${m}분 ${v > 0 ? '블루' : '레드'} +${Math.round(Math.abs(v)).toLocaleString()} 골드`;
   const only = v => Math.abs(v) < 50 ? '밴픽만 보면 비슷' : `밴픽만 보면 ${v > 0 ? '블루' : '레드'} +${Math.round(Math.abs(v)).toLocaleString()}`;
-  const lateTxt = Math.abs(ph.evenAll - ph.evenTeam) < 0.005 ? '25분에 골드가 같다면 밴픽 차이는 거의 없어요' : `25분에 골드가 같다면 블루 승률 ${pct(ph.evenTeam)} → 밴픽 반영 ${pct(ph.evenAll)}: ${ph.evenAll > ph.evenTeam ? '블루' : '레드'} 조합이 후반에 더 강해요`;
+  const lateTxt = Math.abs(ph.evenAll - ph.evenTeam) < 0.005 ? '25분에 골드가 같다면 밴픽 차이는 거의 없음' : `25분에 골드가 같다면 블루 승률 ${pct(ph.evenTeam)} → 밴픽 반영 ${pct(ph.evenAll)}: ${ph.evenAll > ph.evenTeam ? '블루' : '레드'} 조합이 후반에 더 강함`;
   const laneTxt = ROLES.map((r, i) => { const v = ph.gold[1].per[i]; return Math.abs(v) >= 60 ? `${ROLE_SHORT[i]} ${v > 0 ? '블루' : '레드'} +${Math.round(Math.abs(v))}` : null; }).filter(Boolean);
   $('#sphase').innerHTML = `<h3>구간별 유불리 ${done ? '' : '<span class="note">(지금까지 고른 챔피언 기준)</span>'}</h3>
     ${nPick ? `<div class="chartbox">${phaseSvg(ph, names)}</div>
@@ -2163,14 +2174,14 @@ function renderPhase(g, wp, done) {
     <dl class="kv"><dt>초반</dt><dd>${lead(g10.team + g10.draft, 10)} (${only(g10.draft)})</dd>
     <dt>중반</dt><dd>${lead(g25.team + g25.draft, 25)} (${only(g25.draft)})</dd>
     <dt>후반</dt><dd>${lateTxt}</dd>
-    ${laneTxt.length ? `<dt>15분 라인</dt><dd>${laneTxt.join(' · ')} (밴픽만)</dd>` : ''}</dl>` : '<p class="note">픽이 나오면 10·15·20·25분 예상 골드 차이와 후반 유불리를 그려요.</p>'}`;
+    ${laneTxt.length ? `<dt>15분 라인</dt><dd>${laneTxt.join(' · ')} (밴픽만)</dd>` : ''}</dl>` : '<p class="note">픽이 나오면 10·15·20·25분 예상 골드 차이와 후반 유불리를 표시함.</p>'}`;
 }
 function renderKeys(g, k, done) {
   const box = $('#skey'), names = simTeams(g);
   if (done) { SIM.rollToken++; SIM.rollKey = ''; box.innerHTML = `<h3>시리즈에서 쓴 챔피언</h3>${usedHtml()}`; return; }
   const key = SIM.cur + ':' + g.acts.join(',') + ':' + g.blueTeam + g.fp + ':' + [...g.fix[0], ...g.fix[1]].join(';') + ':' + SIM.A + SIM.B;
   if (SIM.rollKey === key && SIM.roll) { drawKeys(g, k, SIM.roll); return; }
-  box.innerHTML = '<h3>남은 카드 중 핵심</h3><p class="note">밴픽을 끝까지 300번 예상해서 계산하는 중…</p>';
+  box.innerHTML = '<h3>남은 카드 중 핵심</h3><p class="note">남은 밴픽 300번 예상 계산 중…</p>';
   SIM.rollKey = key; SIM.roll = null;
   simRollouts(k, 300, res => { if (SIM.rollKey !== key) return; SIM.roll = res; drawKeys(g, k, res); });
 }
@@ -2188,7 +2199,7 @@ function drawKeys(g, k, res) {
   const note = $('#srollwp'); if (note) note.textContent = ` · 끝까지 예상대로면 평균 ${pct(res.wp)}`;
 }
 function usedHtml() {
-  if (!SIM.games.some(x => x.acts.length)) return '<p class="note">아직 없어요.</p>';
+  if (!SIM.games.some(x => x.acts.length)) return '<p class="note">아직 없음.</p>';
   return SIM.games.map((x, i) => { const v = gameView(x, x.acts), nm = simTeams(x); return x.acts.length ? `<div class="row" style="margin:4px 0"><span class="tag">${i + 1}세트</span><span class="note">${esc(nm[0])}</span>${v.picks[0].map(c => ci(c)).join('')}<span class="note">${esc(nm[1])}</span>${v.picks[1].map(c => ci(c)).join('')}</div>` : ''; }).join('');
 }
 function simRollouts(k, nSims, done) {

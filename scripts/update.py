@@ -118,7 +118,7 @@ POS = ["top", "jng", "mid", "bot", "sup"]
 def http_text(url):
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=300) as r:
         return r.read().decode("utf-8", "replace")
-def fetch_oe(since_ts):
+def fetch_oe(since_ts, extra_leagues=()):
     import csv, io
     try:
         html = http_text(f"https://drive.google.com/embeddedfolderview?id={OE_FOLDER}")
@@ -134,7 +134,7 @@ def fetch_oe(since_ts):
         if not text.startswith("gameid"): print(f"Oracle's Elixir {y}: download refused (quota)", flush=True); continue
         games = {}
         for row in csv.DictReader(io.StringIO(text)):
-            if row.get("league") not in OE_LG: continue
+            if row.get("league") not in OE_LG and row.get("league") not in extra_leagues: continue
             g = games.setdefault(row["gameid"], {"row": row, "team": {}, "pl": {"Blue": {}, "Red": {}}})
             if row["position"] == "team": g["team"][row["side"]] = row
             elif row["side"] in g["pl"]: g["pl"][row["side"]][row["position"]] = row
@@ -204,7 +204,9 @@ def main():
     tn = lambda t: re.sub(r"[^a-z0-9]", "", str(t).lower())
     key = lambda g: (round(g[0] / 600), tuple(sorted([tn(g[5]), tn(g[6])])))
     # 1) Oracle's Elixir: richer records; they replace Leaguepedia copies of the same games
-    oe = fetch_oe(base["until"])
+    mp = os.path.join(DATA, "meta.json")
+    meta = json.load(open(mp)) if os.path.exists(mp) else {"pn_base": base.get("patches", [])}
+    oe = fetch_oe(base["until"], set(meta.get("leagues", [])))
     if oe:
         ok = {key(g) for g in oe}
         ex["games"] = [g for g in ex["games"] if key(g) not in ok]
@@ -225,8 +227,8 @@ def main():
     ex["updated"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     json.dump(ex, open(ex_path, "w"), ensure_ascii=False, separators=(",", ":"))
     print(f"added {added} games, {len(ex['games'])} in total since the base data", flush=True)
-    mp = os.path.join(DATA, "meta.json")
-    meta = json.load(open(mp)) if os.path.exists(mp) else {"pn_base": base.get("patches", [])}
+    meta["leagues"] = sorted(set(meta.get("leagues", [])) | {g[1] for g in ex["games"] if g[8] == "lp"})
+    meta["checked"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())   # changes every run: keeps the repository active so GitHub never pauses the schedule
     json.dump(update_meta(meta), open(mp, "w"), ensure_ascii=False, separators=(",", ":"))
 
 if __name__ == "__main__":
