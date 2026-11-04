@@ -73,6 +73,9 @@ h3{font-size:15px;margin:0 0 8px;font-weight:700}
 .why h3{font-size:14px;margin:0 0 6px}
 .why p{margin:4px 0;font-size:13px;line-height:1.55}
 .why p.mini{padding-left:10px}
+.why .sub{margin:8px 0 4px 10px;font-size:13px;line-height:1.55}
+.why .sub ul{margin:2px 0 0;padding-left:18px}
+.why .sub li{margin:2px 0}
 .tag.sm{font-size:11px;padding:0 5px}
 .kv dt{color:var(--muted)} .kv dd{margin:0}
 .legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted)}
@@ -1195,8 +1198,9 @@ function whyHtml(s) {
     if (v && v.n >= 10 && Math.abs(v.s) >= 0.03) head += ` 팀 실력으로 예상한 것보다 ${v.s > 0 ? '더 이김' : '덜 이김'}(${v.s > 0 ? '+' : ''}${(v.s * 100).toFixed(1)}%p, ${v.n}판).`;
     head += duoText(ri);
     let t = `<p>${head}</p>`;
-    if (x.answers.length) t += `<p class="mini">이 상대를 보고 꺼냄: ${x.answers.map(a => `${nm(a.e)} ×${a.lift.toFixed(1)} — ${rec(a)}`).join(' · ')}</p>`;
-    if (x.answeredBy.length) t += `<p class="mini">${josa(me, '을', '를')} 보고 상대가 꺼낸 카드: ${x.answeredBy.map(a => `${nm(a.e)} ×${a.lift.toFixed(1)} — ${me} 쪽 ${rec(a)}`).join(' · ')}</p>`;
+    const sub = (label, items) => `<div class="sub"><b>${label}</b><ul>${items.map(x => `<li>${x}</li>`).join('')}</ul></div>`;
+    if (x.answers.length) t += sub('이 상대를 보고 꺼냄', x.answers.map(a => `${nm(a.e)} ×${a.lift.toFixed(1)} — ${rec(a)}`));
+    if (x.answeredBy.length) t += sub(`${esc(josa(me, '을', '를'))} 보고 상대가 꺼냄`, x.answeredBy.map(a => `${nm(a.e)} ×${a.lift.toFixed(1)} — ${esc(me)} 쪽 ${rec(a)}`));
     parts.push(t);
   }
   const head = reasons.length ? `<p>${reasons.join(' ')}</p>` : '';
