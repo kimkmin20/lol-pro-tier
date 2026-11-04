@@ -1157,7 +1157,10 @@ function whyHtml(s) {
   const tierMap = new Map((LASTTIER ? LASTTIER.list : []).map(x => [x.c, x.tier]));
   const tagT = e => { const t = tierMap.get(e); return t && t !== '상황' ? t + '티어' : ''; };
   const nm = e => `<b>${esc(cname(e))}</b>${tagT(e) ? ` <span class="tag sm">${tagT(e)}</span>` : ''}`;
-  const rec = a => [`${a.n}판 ${a.w}승`, a.exp ? `팀 실력으로는 ${a.exp.toFixed(1)}승 예상` : null, a.gd !== null ? `15분 라인 골드 ${a.gd >= 0 ? '+' : '−'}${Math.abs(Math.round(a.gd))}` : null].filter(Boolean).join(', ');
+  // win contribution: wins minus the wins the two teams' ratings predicted, per game (e.g. 1 win where 3.5 were expected in 7 games = −36%p)
+  const contrib = a => { const v = Math.round((a.w - a.exp) / a.n * 100); return `승리 기여도 <b style="color:${v > 0 ? 'var(--good)' : v < 0 ? 'var(--bad)' : 'inherit'}">${v > 0 ? '+' : v < 0 ? '−' : '±'}${Math.abs(v)}%p</b>`; };
+  const rec = (a, who = '') => [`${a.n}판`, a.exp ? who + contrib(a) : `${a.w}승`, a.gd !== null ? `15분 라인 골드 ${a.gd >= 0 ? '+' : '−'}${Math.abs(Math.round(a.gd))}` : null].filter(Boolean).join(', ');
+  const tip = info('승리 기여도: 팀 실력으로 예상한 승률보다 몇 %p 더(덜) 이겼는지. 판수가 적으면 크게 흔들림.');
   const me = cname(c), reasons = [], parts = [];
   if (roles.length >= 2) reasons.push(`${roles.map(ri => ROLE_KO[ROLES[ri]]).join('·')} 어디로도 갈 수 있어 상대가 포지션을 읽기 어려움.`);
   if (s.p + s.b >= 6 && s.b / (s.p + s.b) >= 0.55) reasons.push(`이 구간 밴 ${s.b}번, 픽 ${s.p}번. 쓰고 싶은 카드보다 상대에게 주기 싫은 카드에 가까움.`);
@@ -1199,8 +1202,8 @@ function whyHtml(s) {
     head += duoText(ri);
     let t = `<p>${head}</p>`;
     const sub = (label, items) => `<div class="sub"><b>${label}</b><ul>${items.map(x => `<li>${x}</li>`).join('')}</ul></div>`;
-    if (x.answers.length) t += sub('이 상대를 보고 꺼냄', x.answers.map(a => `${nm(a.e)} ×${a.lift.toFixed(1)} — ${rec(a)}`));
-    if (x.answeredBy.length) t += sub(`${esc(josa(me, '을', '를'))} 보고 상대가 꺼냄`, x.answeredBy.map(a => `${nm(a.e)} ×${a.lift.toFixed(1)} — ${esc(me)} 쪽 ${rec(a)}`));
+    if (x.answers.length) t += sub(`이 상대를 보고 꺼냄 ${tip}`, x.answers.map(a => `${nm(a.e)} ×${a.lift.toFixed(1)} — ${rec(a)}`));
+    if (x.answeredBy.length) t += sub(`${esc(josa(me, '을', '를'))} 보고 상대가 꺼냄 ${tip}`, x.answeredBy.map(a => `${nm(a.e)} ×${a.lift.toFixed(1)} — ${rec(a, esc(me) + ' ')}`));
     parts.push(t);
   }
   const head = reasons.length ? `<p>${reasons.join(' ')}</p>` : '';
@@ -1254,14 +1257,14 @@ function renderDetail() {
   const csTxt = ROLES.map((r, i) => { const v = CS.get(r + ':' + s.c); return v && v.n >= 5 ? `${ROLE_KO[r]} ${(v.s * 100 >= 0 ? '+' : '') + (v.s * 100).toFixed(1)}%p (${v.n}판)` : null; }).filter(Boolean).join(' · ') || '표본 부족';
   box.innerHTML = `<div class="dhead2">${ci(s.c)}<div><h2>${esc(cname(s.c))} <span class="tag">${esc(CH[s.c].en)}</span> ${s.tier ? `<span class="tag">${s.tier === '상황' ? '상황' : s.tier + '티어'}</span>` : ''}</h2></div></div>
     <div class="detail"><dl class="kv">
-      <dt>예상 밴픽률 ${info('다음 경기들에서 밴 또는 픽될 비율의 예측이에요.')}</dt><dd class="num">${pct(s.score)}</dd>
+      <dt>예상 밴픽률 ${info('다음 경기들에서 밴 또는 픽될 비율의 예측.')}</dt><dd class="num">${pct(s.score)}</dd>
       <dt>이 구간 실제 밴픽률</dt><dd class="num">${LASTTIER.n ? pct(s.pres / LASTTIER.n) + ` (${s.pres}/${LASTTIER.n}경기)` : '-'}</dd>
       <dt>픽 / 밴</dt><dd class="num">${s.p} / ${s.b}</dd>
-      <dt>픽했을 때 승률 ${info('티어 계산에는 쓰지 않아요.')}</dt><dd class="num">${s.p ? pct(s.w / s.p) + ` (${s.w}승 ${s.p - s.w}패)` : '-'}</dd>
+      <dt>픽했을 때 승률 ${info('티어 계산에는 쓰지 않음.')}</dt><dd class="num">${s.p ? pct(s.w / s.p) + ` (${s.w}승 ${s.p - s.w}패)` : '-'}</dd>
       <dt>포지션</dt><dd>${roleTxt}</dd>
       <dt>이번 패치</dt><dd>${LASTTIER.changed.has(CH[s.c].k) ? `${esc(LASTTIER.patch)}에서 바뀜` : '변경 없음'}</dd>
     </dl>
-    <dl class="kv"><dt>많이 쓴 팀</dt><dd>${teams}</dd><dt>성능 (최근 90일) ${info('팀 실력으로 예상한 승률보다 얼마나 더 이겼는지를 표본 크기만큼 줄여서 잰 값이에요. 경기 예측의 밴픽 보정에 쓰여요.')}</dt><dd>${csTxt}</dd></dl>
+    <dl class="kv"><dt>많이 쓴 팀</dt><dd>${teams}</dd><dt>성능 (최근 90일) ${info('팀 실력으로 예상한 승률보다 얼마나 더 이겼는지를 판수가 적을수록 0에 가깝게 줄여서 잰 값. 경기 예측의 밴픽 보정에 쓰임.')}</dt><dd>${csTxt}</dd></dl>
     <div class="why"><h3>설명</h3>${whyHtml(s)}</div></div>`;
   modal.hidden = false;
 }
