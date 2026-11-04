@@ -12,9 +12,12 @@ WIKI = "https://wiki.leagueoflegends.com/en-us/api.php"
 SPECIAL = {"nunuwillump": "nunu", "monkeyking": "wukong", "renataglasc": "renata"}
 def ckey(s):
     k = re.sub(r"[^a-z0-9]", "", str(s or "").lower()); return SPECIAL.get(k, k) if k else ""
+START = time.time()
+BUDGET = 40 * 60   # stop waiting on rate limits after 40 minutes; tomorrow's run continues from the same point
 def get_json(url, params, tries=8):
     q = url + "?" + urllib.parse.urlencode(params)
     for i in range(tries):
+        if time.time() - START > BUDGET: raise RuntimeError("time budget used up")
         try:
             with urllib.request.urlopen(urllib.request.Request(q, headers={"User-Agent": UA}), timeout=60) as r:
                 d = json.loads(r.read().decode("utf-8"))
