@@ -110,13 +110,68 @@ def fetch_games(since):
         out.append(rec)
     return out
 
+# Oracle's Elixir (official Google Drive folder): the current year's file has pick order, first pick and gold differences.
+# Drive sometimes refuses downloads of popular files ("quota exceeded"); then Leaguepedia alone is used that day.
+OE_FOLDER = "1gLSw0RLjBbtaNy0dgnGQDAZOHIgCe-HH"
+OE_LG = {"LCK", "LPL", "LEC", "LCS", "LTA N", "LTA S", "LTA", "LCP", "PCS", "VCS", "CBLOL", "LJL", "TCL", "LLA", "WLDs", "MSI", "FST", "EWC"}
+POS = ["top", "jng", "mid", "bot", "sup"]
+def http_text(url):
+    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=300) as r:
+        return r.read().decode("utf-8", "replace")
+def fetch_oe(since_ts):
+    import csv, io
+    try:
+        html = http_text(f"https://drive.google.com/embeddedfolderview?id={OE_FOLDER}")
+    except Exception as e:
+        print("Oracle's Elixir folder not reachable:", e, flush=True); return []
+    files = dict((t, i) for i, t in re.findall(r'href="https://drive.google.com/file/d/([^/"]+)/[^"]*".*?flip-entry-title">([^<]+)<', html, re.S))
+    out = []
+    for y in sorted({time.gmtime(since_ts).tm_year, time.gmtime().tm_year}):
+        fid = files.get(f"{y}_LoL_esports_match_data_from_OraclesElixir.csv")
+        if not fid: continue
+        try: text = http_text(f"https://drive.usercontent.google.com/download?id={fid}&export=download&confirm=t")
+        except Exception as e: print("Oracle's Elixir download failed:", e, flush=True); continue
+        if not text.startswith("gameid"): print(f"Oracle's Elixir {y}: download refused (quota)", flush=True); continue
+        games = {}
+        for row in csv.DictReader(io.StringIO(text)):
+            if row.get("league") not in OE_LG: continue
+            g = games.setdefault(row["gameid"], {"row": row, "team": {}, "pl": {"Blue": {}, "Red": {}}})
+            if row["position"] == "team": g["team"][row["side"]] = row
+            elif row["side"] in g["pl"]: g["pl"][row["side"]][row["position"]] = row
+        num = lambda v: None if v in (None, "") else float(v)
+        for gid, g in games.items():
+            B, R = g["team"].get("Blue"), g["team"].get("Red")
+            if not B or not R or any(p not in g["pl"][s] for s in ("Blue", "Red") for p in POS): continue
+            try: ts = calendar.timegm(time.strptime(B["date"][:19], "%Y-%m-%d %H:%M:%S"))
+            except ValueError: continue
+            if ts <= since_ts: continue
+            picks = [ckey(g["pl"][s][p]["champion"]) for s in ("Blue", "Red") for p in POS]
+            if "" in picks: continue
+            rec = [ts, B["league"], B.get("split") or "", int(num(B.get("playoffs")) or 0), B.get("patch") or "", B["teamname"], R["teamname"], 1 if B.get("result") == "1" else 0, "oe",
+                   picks, [ckey(T.get(f"ban{i}")) for T in (B, R) for i in range(1, 6)], [g["pl"][s][p].get("playername") or "" for s in ("Blue", "Red") for p in POS],
+                   "", "", -1, None, None, None]
+            def order(T, own):
+                ks = [ckey(T.get(f"pick{i}")) for i in range(1, 6)]
+                return "".join(str(own.index(k)) for k in ks) if all(k in own for k in ks) else ""
+            ob, orr = order(B, picks[:5]), order(R, picks[5:])
+            if len(ob) == 5 and len(orr) == 5 and (B.get("firstPick") == "1" or R.get("firstPick") == "1"):
+                rec[12], rec[13], rec[14] = ob, orr, 1 if B.get("firstPick") == "1" else 0
+            gd = [num(B.get(f"golddiffat{m}")) for m in (10, 15, 20, 25)]
+            if any(v is not None for v in gd): rec[15] = [None if v is None else round(v / 10) for v in gd]
+            lg15 = [num(g["pl"]["Blue"][p].get("golddiffat15")) for p in POS]
+            if any(v is not None for v in lg15): rec[16] = [None if v is None else round(v / 10) for v in lg15]
+            if num(B.get("gamelength")): rec[17] = round(num(B["gamelength"]) / 6) / 10
+            out.append(rec)
+        print(f"Oracle's Elixir {y}: {len(out)} new games", flush=True)
+    return out
+
 def update_meta(meta):
     try:
         v = get_json("https://ddragon.leagueoflegends.com/api/versions.json", {})[0]
         ko = get_json(f"https://ddragon.leagueoflegends.com/cdn/{v}/data/ko_KR/champion.json", {})["data"]
         en = get_json(f"https://ddragon.leagueoflegends.com/cdn/{v}/data/en_US/champion.json", {})["data"]
         meta["ddv"] = v
-        meta["champs"] = [[ckey(c["name"]), c["name"], ko.get(i, c)["name"], i] for i, c in en.items()]
+        meta["champs"] = [[ckey(c["name"]), c["name"], ko.get(i, c)["name"], i, c.get("tags", [])] for i, c in en.items()]
         print("Data Dragon", v, len(meta["champs"]), "champions", flush=True)
     except Exception as e: print("Data Dragon not updated:", e, flush=True)
     pn = meta.setdefault("pn", {})
@@ -146,15 +201,24 @@ def main():
     base = json.load(open(os.path.join(DATA, "base.json")))
     ex_path = os.path.join(DATA, "extra.json")
     ex = json.load(open(ex_path)) if os.path.exists(ex_path) else {"games": []}
+    tn = lambda t: re.sub(r"[^a-z0-9]", "", str(t).lower())
+    key = lambda g: (round(g[0] / 600), tuple(sorted([tn(g[5]), tn(g[6])])))
+    # 1) Oracle's Elixir: richer records; they replace Leaguepedia copies of the same games
+    oe = fetch_oe(base["until"])
+    if oe:
+        ok = {key(g) for g in oe}
+        ex["games"] = [g for g in ex["games"] if key(g) not in ok]
+        ex["games"] += [g for g in oe]
+    # 2) Leaguepedia: games after the newest one we already have
     last = max([base["until"]] + [g[0] for g in ex["games"]])
     since = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(last + 60))
-    print("looking for games after", since, "UTC", flush=True)
+    print("looking for games after", since, "UTC on Leaguepedia", flush=True)
     try: new = fetch_games(since)
     except Exception as e: print("games not updated today:", e, flush=True); new = []
-    have = {(round(g[0] / 600), tuple(sorted([g[5].lower(), g[6].lower()]))) for g in ex["games"]}
+    have = {key(g) for g in ex["games"]}
     added = 0
     for g in new:
-        k = (round(g[0] / 600), tuple(sorted([g[5].lower(), g[6].lower()])))
+        k = key(g)
         if k in have or g[0] <= base["until"]: continue
         have.add(k); ex["games"].append(g); added += 1
     ex["games"].sort(key=lambda g: g[0])
